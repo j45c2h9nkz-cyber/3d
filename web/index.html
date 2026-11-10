@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="de-CH">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>3D-Ansichten</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="symbol-180.png">
+<link rel="icon" href="symbol-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="3D">
+<meta name="theme-color" content="#f3f3f1">
+<meta name="robots" content="noindex">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:#f3f3f1;color:#222;
+       font:17px/1.4 Calibri,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:env(safe-area-inset-top,0px) 16px env(safe-area-inset-bottom,0px)}
+  main{width:100%;max-width:440px;text-align:center}
+  img{width:88px;height:88px;border-radius:20px;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+  h1{font-size:23px;margin:14px 0 6px}
+  #info{min-height:1.4em;margin:0 0 16px;color:#555}
+  #info.fehler{color:#b3261e}
+  input{box-sizing:border-box;width:100%;font-size:17px;padding:12px 14px;border:1px solid #b9b9b9;border-radius:10px;background:#fff;color:inherit}
+  form button{width:100%;margin-top:10px;font-size:17px;font-weight:600;padding:12px;border:0;border-radius:10px;background:#333;color:#fff}
+  button:disabled{opacity:.6}
+  #liste{display:flex;flex-direction:column;gap:10px;text-align:left}
+  #liste button{font:inherit;padding:14px 16px;border:1px solid #9a9a9a;border-radius:10px;background:#fff;color:#222;cursor:pointer}
+  #liste b{display:block;font-size:19px}
+  #liste span{font-size:14px;color:#666}
+  #nochmals{font:inherit;padding:10px 16px;border:1px solid #9a9a9a;border-radius:10px;background:#fff}
+  [hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <img src="symbol-180.png" alt="">
+  <h1>3D-Ansichten</h1>
+  <p id="info">Wird geladen …</p>
+  <form id="form" hidden>
+    <input type="text" value="3D-Ansichten" autocomplete="username" style="display:none" aria-hidden="true">
+    <input type="password" id="pw" placeholder="Passwort" autocomplete="current-password" autocapitalize="off" spellcheck="false">
+    <button id="knopf">Öffnen</button>
+  </form>
+  <div id="liste" hidden></div>
+  <button id="nochmals" hidden>Nochmals versuchen</button>
+</main>
+<script>
+// Startseite: holt die verschluesselte Liste (liste.dat), entschluesselt sie mit dem Passwort und zeigt die Objekte.
+// Ein Objekt antippen = dessen 3D-Ansicht (n.dat) entschluesseln und anzeigen. Muster wie die Statik-App:
+// Passwort nur beim ersten Mal, danach bleibt der Schluessel auf diesem Geraet (eigene Ablage «dreid.»).
+(function(){
+  "use strict";
+  var SALZ = "__SALZ__", RUNDEN = __RUNDEN__, ABLAGE = "dreid.schluessel";
+  var info = document.getElementById("info"), form = document.getElementById("form"), pw = document.getElementById("pw"),
+      knopf = document.getElementById("knopf"), listeEl = document.getElementById("liste"), nochmals = document.getElementById("nochmals");
+
+  function melden(text, fehler){ info.textContent = text; info.className = fehler ? "fehler" : ""; }
+  function hexBytes(h){ var a = new Uint8Array(h.length / 2); for(var i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
+  function zuText(a){ var s = ""; for(var i = 0; i < a.length; i++) s += String.fromCharCode(a[i]); return btoa(s); }
+  function ausText(s){ var t = atob(s), a = new Uint8Array(t.length); for(var i = 0; i < t.length; i++) a[i] = t.charCodeAt(i); return a; }
+  function lesen(){ try { return localStorage.getItem(ABLAGE); } catch(e){ return null; } }
+  function merken(v){ try { localStorage.setItem(ABLAGE, v); } catch(e){} }
+  function vergessen(){ try { localStorage.removeItem(ABLAGE); } catch(e){} }
+
+  if(!window.crypto || !crypto.subtle || !window.DecompressionStream){
+    melden("Dieser Browser ist zu alt für die 3D-Ansichten (iPad/iPhone: iOS 16.4 oder neuer).", true); return;
+  }
+  if("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function(){});
+
+  function holen(name){
+    return fetch(name, {cache: "no-cache"}).then(function(r){
+      if(!r.ok) throw new Error(name + ": " + r.status);
+      return r.arrayBuffer();
+    }).then(function(b){ return new Uint8Array(b); });
+  }
+  var liste = holen("liste.dat");
+
+  async function ableiten(passwort){
+    var basis = await crypto.subtle.importKey("raw", new TextEncoder().encode(passwort), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey({name: "PBKDF2", salt: hexBytes(SALZ), iterations: RUNDEN, hash: "SHA-256"},
+                                   basis, {name: "AES-GCM", length: 256}, true, ["decrypt"]);
+  }
+
+  async function entschluesseln(d, schluessel){   // wirft bei falschem Passwort
+    if(d[0] !== 68 || d[1] !== 82 || d[2] !== 65 || d[3] !== 49) throw new Error("unbekanntes Format");   // «DRA1»
+    var roh = await crypto.subtle.decrypt({name: "AES-GCM", iv: d.slice(4, 16)}, schluessel, d.slice(16));
+    return new Response(new Blob([roh]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
+  }
+
+  function anzeigen(html){
+    html = html.replace("<head>", "<head><script>window.ZUR_LISTE = 1;<\/script>");
+    document.open(); document.write(html); document.close();
+  }
+
+  function auswahl(eintraege, schluessel){
+    form.hidden = true; listeEl.innerHTML = ""; listeEl.hidden = false;
+    melden("Objekt antippen:");
+    eintraege.forEach(function(e){
+      var b = document.createElement("button");
+      b.innerHTML = "<b></b><span></span>";
+      b.firstChild.textContent = e.titel; b.lastChild.textContent = e.untertitel || "";
+      b.addEventListener("click", async function(){
+        melden("3D-Ansicht wird geöffnet …");
+        try { anzeigen(await entschluesseln(await holen(e.datei), schluessel)); }
+        catch(err){ melden("Öffnen ging nicht (" + err.message + "). Ohne Internet geht nur, was schon einmal offen war.", true); }
+      });
+      listeEl.appendChild(b);
+    });
+  }
+
+  async function start(){
+    var d;
+    try { d = await liste; } catch(e){
+      melden("Keine Verbindung. Beim ersten Öffnen braucht die Seite Internet, danach geht sie auch offline.", true);
+      nochmals.hidden = false; return;
+    }
+    var gespeichert = lesen();
+    if(gespeichert){
+      try {
+        var k = await crypto.subtle.importKey("raw", ausText(gespeichert), "AES-GCM", false, ["decrypt"]);
+        auswahl(JSON.parse(await entschluesseln(d, k)), k); return;
+      } catch(e){ vergessen(); }   // Passwort wurde geaendert → neu fragen
+    }
+    melden("Bitte das Passwort eingeben.");
+    form.hidden = false; pw.focus();
+  }
+
+  form.addEventListener("submit", async function(ev){
+    ev.preventDefault();
+    if(!pw.value) return;
+    knopf.disabled = true; melden("Wird geöffnet …");
+    try {
+      var k = await ableiten(pw.value);
+      var eintraege = JSON.parse(await entschluesseln(await liste, k));
+      merken(zuText(new Uint8Array(await crypto.subtle.exportKey("raw", k))));
+      auswahl(eintraege, k);
+    } catch(e){
+      melden("Das Passwort stimmt nicht.", true); knopf.disabled = false; pw.select();
+    }
+  });
+  nochmals.addEventListener("click", function(){ location.reload(); });
+  start();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+# Baut nach jedem Hochladen die Seite «3D-Ansichten» und stellt sie auf GitHub Pages.
+# Geheimnisse: DREID_SCHLUESSEL (Uebertragungsschluessel) und DREID_PASSWORT (Passwort der Seite).
+# Fehlt eines, wird nichts veroeffentlicht (kein Fehler).
+name: Seite
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Verschluesseln
+        id: v
+        env:
+          DREID_PASSWORT: ${{ secrets.DREID_PASSWORT }}
+          DREID_SCHLUESSEL: ${{ secrets.DREID_SCHLUESSEL }}
+        run: |
+          if [ -z "$DREID_PASSWORT" ] || [ -z "$DREID_SCHLUESSEL" ]; then
+            echo "Passwort oder Schluessel fehlt - nichts veroeffentlicht."; echo "bereit=nein" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          pip install --quiet cryptography
+          python werkzeuge/bauen.py _site
+          echo "bereit=ja" >> "$GITHUB_OUTPUT"
+      - uses: actions/configure-pages@v5
+        if: steps.v.outputs.bereit == 'ja'
+      - uses: actions/upload-pages-artifact@v3
+        if: steps.v.outputs.bereit == 'ja'
+        with:
+          path: _site
+      - id: deploy
+        if: steps.v.outputs.bereit == 'ja'
+        uses: actions/deploy-pages@v4

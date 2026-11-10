@@ -43,6 +43,10 @@ def main(ziel):
         pruef.update(open(os.path.join(oben, "quelle", quelle), "rb").read())
         open(os.path.join(ziel, e["datei"]), "wb").write(daten)
         dateien.append(e["datei"])
+        for p in e.get("plaene", []):                                # Plaene (PDF): nicht vorab gespeichert, erst beim Oeffnen
+            q = p["datei"].replace(".dat", ".bin")
+            pruef.update(open(os.path.join(oben, "quelle", q), "rb").read())
+            open(os.path.join(ziel, p["datei"]), "wb").write(umschluesseln(q))
     pruef.update(liste_bin)
     stand = pruef.hexdigest()[:10]
     for name, ersatz in (("index.html", {"__SALZ__": SALZ.hex(), "__RUNDEN__": str(RUNDEN)}),
@@ -53,7 +57,7 @@ def main(ziel):
             t = t.replace(alt, neu)
         open(p, "w", encoding="utf-8", newline="\n").write(t)
     open(os.path.join(ziel, ".nojekyll"), "w").close()
-    print(f"Seite gebaut: {len(liste)} Ansichten, Stand {stand}")
+    print(f"Seite gebaut: {len(liste)} Ansichten, {sum(len(e.get('plaene', [])) for e in liste)} Plaene, Stand {stand}")
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else os.path.join(oben, "_site"))

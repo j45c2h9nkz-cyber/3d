@@ -87,8 +87,24 @@
     return new Response(new Blob([roh]).stream().pipeThrough(new DecompressionStream("gzip"))).text();
   }
 
-  function anzeigen(html){
-    html = html.replace("<head>", "<head><script>window.ZUR_LISTE = 1;<\/script>");
+  // Ein Plan (PDF) fuer den Knopf «Pläne» der 3D-Ansicht: holen, mit dem gespeicherten Schluessel entschluesseln → Blob.
+  // Wird als Text in die Ansicht gegeben, darf darum nichts von hier ausserhalb benutzen.
+  async function planLaden(datei){
+    var s = atob(localStorage.getItem("dreid.schluessel") || ""), r = new Uint8Array(s.length);
+    for(var i = 0; i < s.length; i++) r[i] = s.charCodeAt(i);
+    var k = await crypto.subtle.importKey("raw", r, "AES-GCM", false, ["decrypt"]);
+    var antwort = await fetch(datei);
+    if(!antwort.ok) throw new Error(datei + ": " + antwort.status);
+    var d = new Uint8Array(await antwort.arrayBuffer());
+    if(d[0] !== 68 || d[1] !== 82 || d[2] !== 65 || d[3] !== 49) throw new Error("unbekanntes Format");
+    var roh = await crypto.subtle.decrypt({name: "AES-GCM", iv: d.slice(4, 16)}, k, d.slice(16));
+    return new Response(new Blob([roh]).stream().pipeThrough(new DecompressionStream("gzip"))).blob();
+  }
+
+  function anzeigen(html, plaene){
+    var zusatz = "window.ZUR_LISTE = 1;";
+    if(plaene && plaene.length) zusatz += "window.PLAENE = " + JSON.stringify(plaene).replace(/</g, "\\u003c") + ";window.PLAN_LADEN = " + planLaden.toString() + ";";
+    html = html.replace("<head>", "<head><script>" + zusatz + "<\/script>");
     document.open(); document.write(html); document.close();
   }
 
@@ -98,10 +114,12 @@
     eintraege.forEach(function(e){
       var b = document.createElement("button");
       b.innerHTML = "<b></b><span></span>";
-      b.firstChild.textContent = e.titel; b.lastChild.textContent = e.untertitel || "";
+      var n = (e.plaene || []).length;
+      b.firstChild.textContent = e.titel;
+      b.lastChild.textContent = (e.untertitel || "") + (n ? " · " + (n === 1 ? "1 Plan" : n + " Pläne") + " zum Drucken" : "");
       b.addEventListener("click", async function(){
         melden("3D-Ansicht wird geöffnet …");
-        try { anzeigen(await entschluesseln(await holen(e.datei), schluessel)); }
+        try { anzeigen(await entschluesseln(await holen(e.datei), schluessel), e.plaene); }
         catch(err){ melden("Öffnen ging nicht (" + err.message + "). Ohne Internet geht nur, was schon einmal offen war.", true); }
       });
       listeEl.appendChild(b);
